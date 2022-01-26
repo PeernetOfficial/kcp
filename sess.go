@@ -90,6 +90,10 @@ type (
 		chReadEvent  chan struct{} // notify Read() can be called without blocking
 		chWriteEvent chan struct{} // notify Write() can be called without blocking
 
+		// Custom peernet channels
+		incomingData <-chan []byte // source to read packets from
+		outgoingData chan<- []byte // destination to send packets to
+
 		// socket error handling
 		socketReadError      atomic.Value
 		socketWriteError     atomic.Value
@@ -246,6 +250,10 @@ func (s *UDPSession) Read(b []byte) (n int, err error) {
 		// wait for read event or timeout or error
 		select {
 		case <-s.chReadEvent:
+			if timeout != nil {
+				timeout.Stop()
+			}
+		case <-s.incomingData:
 			if timeout != nil {
 				timeout.Stop()
 			}

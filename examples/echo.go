@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/sha1"
-	"github.com/PeernetOfficial/kcp-go"
+	"github.com/PeernetOfficial/kcp"
 	"io"
 	"log"
 	"time"

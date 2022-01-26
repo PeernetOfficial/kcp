@@ -1,4 +1,4 @@
-module github.com/PeernetOfficial/kcp-go
+module github.com/PeernetOfficial/kcp
 
 require (
 	github.com/klauspost/cpuid v1.3.1 // indirect
