@@ -2,11 +2,11 @@ package main
 
 import (
 	"crypto/sha1"
+	"github.com/PeernetOfficial/kcp-go"
 	"io"
 	"log"
 	"time"
 
-	"github.com/xtaci/kcp-go/v5"
 	"golang.org/x/crypto/pbkdf2"
 )
 
