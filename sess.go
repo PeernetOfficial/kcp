@@ -58,6 +58,16 @@ func init() {
 }
 
 type (
+	// IncomingData Incoming struct for packets coming through virtualPacketConn channel
+	IncomingData struct {
+		incomingData <-chan []byte // source to read packets from
+	}
+
+	// OutgoingData Sending struct for packets outgoing through virtualPacketConn channel
+	OutgoingData struct {
+		outgoingData chan<- []byte // destination to send packets to
+	}
+
 	// UDPSession defines a KCP session implemented by UDP
 	UDPSession struct {
 		conn    net.PacketConn // the underlying packet connection
@@ -128,6 +138,7 @@ type (
 
 // newUDPSession create a new udp session for client or server
 func newUDPSession(conv uint32, dataShards, parityShards int, l *Listener, conn net.PacketConn, ownConn bool, remote net.Addr, block BlockCrypt) *UDPSession {
+
 	sess := new(UDPSession)
 	sess.die = make(chan struct{})
 	sess.nonce = new(nonceAES128)
@@ -1026,7 +1037,7 @@ func serveConn(block BlockCrypt, dataShards, parityShards int, conn net.PacketCo
 	l.parityShards = parityShards
 	l.block = block
 	l.chSocketReadError = make(chan struct{})
-	go l.monitor()
+	//go l.monitor() commented the as monitoring of the core connections are from the core rep0
 	return l, nil
 }
 

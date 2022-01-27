@@ -10,6 +10,7 @@ func PeernetDialWithOptions() {
 }
 
 func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt) *UDPSession {
+
 	sess := new(UDPSession)
 	sess.die = make(chan struct{})
 	sess.nonce = new(nonceAES128)
@@ -66,4 +67,19 @@ func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener
 	}
 
 	return sess
+}
+
+// ReadEventPeernet Read event to read input from VirtualPacketConn Channel
+func (s *UDPSession) ReadEventPeernet() {
+
+	select {
+	// Incoming data
+	case <-s.incomingData:
+        
+	}
+}
+
+// WriteEventPeernet Writes event to the send channel from the VirtualPacketConn Channel
+func (s *UDPSession) WriteEventPeernet() {
+
 }
