@@ -101,8 +101,16 @@ type (
 		chWriteEvent chan struct{} // notify Write() can be called without blocking
 
 		// Custom peernet channels
-		incomingData <-chan []byte // source to read packets from
-		outgoingData chan<- []byte // destination to send packets to
+		incomingData      <-chan []byte   // source to read packets from
+		outgoingData      chan<- []byte   // destination to send packets
+		terminationSignal <-chan struct{} // external termination signal to watch
+
+		// Custom peernet closer
+		closer Closer // external closer to call in case the local socket/listener closes
+
+		// Custom peernet Socket ID
+		sockID    uint32 // our sockID
+		farSockID uint32 // the peer's sockID
 
 		// socket error handling
 		socketReadError      atomic.Value
@@ -120,7 +128,14 @@ type (
 		xconn           batchConn // for x/net
 		xconnWriteError error
 
+		// send packets through the peernet core protocol
+		sendqueue [][]byte
+
 		mu sync.Mutex
+	}
+
+	PeernetPacketQueue struct {
+		Buffers [][]byte
 	}
 
 	setReadBuffer interface {
@@ -264,10 +279,6 @@ func (s *UDPSession) Read(b []byte) (n int, err error) {
 			if timeout != nil {
 				timeout.Stop()
 			}
-		case <-s.incomingData:
-			if timeout != nil {
-				timeout.Stop()
-			}
 		case <-c:
 			return 0, errors.WithStack(errTimeout)
 		case <-s.chSocketReadError:
@@ -349,16 +360,26 @@ func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
 }
 
 // uncork sends data in txqueue if there is any
+// modified to send if there is any queue in sendqueue
 func (s *UDPSession) uncork() {
-	if len(s.txqueue) > 0 {
-		s.tx(s.txqueue)
-		// recycle
-		for k := range s.txqueue {
-			xmitBuf.Put(s.txqueue[k].Buffers[0])
-			s.txqueue[k].Buffers = nil
+	if len(s.sendqueue) > 0 {
+		for i, _ := range s.sendqueue {
+			select {
+			case s.outgoingData <- s.sendqueue[i]:
+			case <-s.terminationSignal:
+				return
+			}
 		}
-		s.txqueue = s.txqueue[:0]
 	}
+	//if len(s.txqueue) > 0 {
+	//	s.tx(s.txqueue)
+	//	// recycle
+	//	for k := range s.txqueue {
+	//		xmitBuf.Put(s.txqueue[k].Buffers[0])
+	//		s.txqueue[k].Buffers = nil
+	//	}
+	//	s.txqueue = s.txqueue[:0]
+	//}
 }
 
 // Close closes the connection.
@@ -377,20 +398,25 @@ func (s *UDPSession) Close() error {
 		s.kcp.flush(false)
 		s.uncork()
 		// release pending segments
-		s.kcp.ReleaseTX()
+		//s.kcp.ReleaseTX()
 		if s.fecDecoder != nil {
 			s.fecDecoder.release()
 		}
 		s.mu.Unlock()
 
-		if s.l != nil { // belongs to listener
-			s.l.closeSession(s.remote)
-			return nil
-		} else if s.ownConn { // client socket close
-			return s.conn.Close()
-		} else {
-			return nil
+		//if s.l != nil { // belongs to listener
+		//	s.l.closeSession(s.remote)
+		//	return nil
+		//} else if s.ownConn { // client socket close
+		//	return s.conn.Close()
+		//} else {
+		//	return nil
+		//}
+		err := s.closer.Close(1000)
+		if err != nil {
+			return err
 		}
+		return nil
 	} else {
 		return errors.WithStack(io.ErrClosedPipe)
 	}
@@ -580,21 +606,25 @@ func (s *UDPSession) output(buf []byte) {
 	}
 
 	// 4. TxQueue
-	var msg ipv4.Message
+	//var msg ipv4.Message
 	for i := 0; i < s.dup+1; i++ {
 		bts := xmitBuf.Get().([]byte)[:len(buf)]
 		copy(bts, buf)
-		msg.Buffers = [][]byte{bts}
-		msg.Addr = s.remote
-		s.txqueue = append(s.txqueue, msg)
+		// Commented because we are not using the TX queue
+		//msg.Buffers = [][]byte{bts}
+		//msg.Addr = s.remote
+		//s.txqueue = append(s.txqueue, msg)
+		s.sendqueue = append(s.sendqueue, bts)
 	}
 
 	for k := range ecc {
 		bts := xmitBuf.Get().([]byte)[:len(ecc[k])]
 		copy(bts, ecc[k])
-		msg.Buffers = [][]byte{bts}
-		msg.Addr = s.remote
-		s.txqueue = append(s.txqueue, msg)
+		// Commented because we are not using the TX queue
+		//msg.Buffers = [][]byte{bts}
+		//msg.Addr = s.remote
+		//s.txqueue = append(s.txqueue, msg)
+		s.sendqueue = append(s.sendqueue, bts)
 	}
 }
 
@@ -657,6 +687,7 @@ func (s *UDPSession) notifyWriteEvent() {
 func (s *UDPSession) notifyReadError(err error) {
 	s.socketReadErrorOnce.Do(func() {
 		s.socketReadError.Store(err)
+		s.closer.Close(2)
 		close(s.chSocketReadError)
 	})
 }
@@ -664,6 +695,7 @@ func (s *UDPSession) notifyReadError(err error) {
 func (s *UDPSession) notifyWriteError(err error) {
 	s.socketWriteErrorOnce.Do(func() {
 		s.socketWriteError.Store(err)
+		s.closer.Close(2)
 		close(s.chSocketWriteError)
 	})
 }
@@ -794,6 +826,18 @@ type (
 		sessionLock     sync.RWMutex
 		chAccepts       chan *UDPSession // Listen() backlog
 		chSessionClosed chan net.Addr    // session close queue
+
+		// Custom peernet channels
+		incomingData      <-chan []byte   // source to read packets from
+		outgoingData      chan<- []byte   // destination to send packets
+		terminationSignal <-chan struct{} // external termination signal to watch
+
+		// Custom peernet closer
+		closer Closer // external closer to call in case the local socket/listener closes
+
+		// Custom peernet Socket ID
+		//sockID    uint32 // our sockID
+		//farSockID uint32 // the peer's sockID
 
 		die     chan struct{} // notify the listener has closed
 		dieOnce sync.Once

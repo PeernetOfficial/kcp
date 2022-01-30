@@ -1,15 +1,20 @@
 package kcp
 
 import (
+	"crypto/rand"
+	"encoding/binary"
+	"net"
 	"sync/atomic"
 	"time"
 )
 
-func PeernetDialWithOptions() {
-
+// Closer provides a status code indicating why the closing happens.
+type Closer interface {
+	Close(reason int) error       // Close is called when the socket is actually closed.
+	CloseLinger(reason int) error // CloseLinger is called when the socket indicates to be closed soon, after the linger time.
 }
 
-func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt) *UDPSession {
+func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt) (net.Conn, error) {
 
 	sess := new(UDPSession)
 	sess.die = make(chan struct{})
@@ -19,13 +24,17 @@ func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener
 	sess.chWriteEvent = make(chan struct{}, 1)
 	sess.chSocketReadError = make(chan struct{})
 	sess.chSocketWriteError = make(chan struct{})
-	sess.l = l
+	sess.l = nil
 	sess.block = block
 	sess.recvbuf = make([]byte, mtuLimit)
 
 	// Custom Peernet channels
 	sess.incomingData = incomingData
 	sess.outgoingData = outgoingData
+	sess.terminationSignal = terminationSignal
+
+	// Custom peernet closer
+	sess.closer = closer
 
 	// FEC codec initialization
 	sess.fecDecoder = newFECDecoder(dataShards, parityShards)
@@ -43,6 +52,9 @@ func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener
 		sess.headerSize += fecHeaderSizePlus2
 	}
 
+	var conv uint32
+	binary.Read(rand.Reader, binary.LittleEndian, &conv)
+
 	sess.kcp = NewKCP(conv, func(buf []byte, size int) {
 		if size >= IKCP_OVERHEAD+sess.headerSize {
 			sess.output(buf[:size])
@@ -51,7 +63,9 @@ func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener
 	sess.kcp.ReserveBytes(sess.headerSize)
 
 	if sess.l == nil { // it's a client connection
-		go sess.readLoop()
+		//go sess.readLoop()
+		// Read event peernet
+		go sess.ReadEventPeernet()
 		atomic.AddUint64(&DefaultSnmp.ActiveOpens, 1)
 	} else {
 		atomic.AddUint64(&DefaultSnmp.PassiveOpens, 1)
@@ -66,20 +80,41 @@ func NewPeerNetUDPSession(conv uint32, dataShards, parityShards int, l *Listener
 		atomic.CompareAndSwapUint64(&DefaultSnmp.MaxConn, maxconn, currestab)
 	}
 
-	return sess
+	return sess, nil
+}
+
+func PeerNetServerUDPSession(closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt, dataShards, parityShards int) net.Listener {
+	l := new(Listener)
+	//l.conn = conn
+	//l.ownConn = ownConn
+	l.sessions = make(map[string]*UDPSession)
+	l.chAccepts = make(chan *UDPSession, acceptBacklog)
+	l.chSessionClosed = make(chan net.Addr)
+	l.die = make(chan struct{})
+	l.dataShards = dataShards
+	l.parityShards = parityShards
+	l.block = block
+	l.chSocketReadError = make(chan struct{})
+	l.closer = closer
+	l.outgoingData = outgoingData
+	l.incomingData = incomingData
+	l.terminationSignal = terminationSignal
+
+	return l
 }
 
 // ReadEventPeernet Read event to read input from VirtualPacketConn Channel
 func (s *UDPSession) ReadEventPeernet() {
+	for {
+		var buf []byte
+		select {
+		// Incoming data
+		case buf = <-s.incomingData:
+			s.packetInput(buf)
+		case <-s.terminationSignal:
+			return
+		}
 
-	select {
-	// Incoming data
-	case <-s.incomingData:
-        
+		s.Read(buf)
 	}
-}
-
-// WriteEventPeernet Writes event to the send channel from the VirtualPacketConn Channel
-func (s *UDPSession) WriteEventPeernet() {
-
 }

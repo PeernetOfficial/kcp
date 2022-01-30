@@ -1063,7 +1063,7 @@ func (kcp *KCP) remove_front(q []segment, n int) []segment {
 	return q[n:]
 }
 
-// Release all cached outgoing segments
+// ReleaseTX Release all cached outgoing segments
 func (kcp *KCP) ReleaseTX() {
 	for k := range kcp.snd_queue {
 		if kcp.snd_queue[k].data != nil {
