@@ -10,6 +10,7 @@ package kcp
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"net"
@@ -32,8 +33,8 @@ const (
 	// overall crypto header size
 	cryptHeaderSize = nonceSize + crcSize
 
-	// maximum packet size
-	mtuLimit = 1500
+	// maximum packet size. ignore udp header to avoid package divided by IP layer
+	mtuLimit = 1500 - 8
 
 	// accept backlog
 	acceptBacklog = 128
@@ -290,7 +291,10 @@ func (s *UDPSession) Read(b []byte) (n int, err error) {
 }
 
 // Write implements net.Conn
-func (s *UDPSession) Write(b []byte) (n int, err error) { return s.WriteBuffers([][]byte{b}) }
+func (s *UDPSession) Write(b []byte) (n int, err error) {
+	fmt.Println(b)
+	return s.WriteBuffers([][]byte{b})
+}
 
 // WriteBuffers write a vector of byte slices to the underlying connection
 func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
@@ -322,6 +326,7 @@ func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
 			}
 
 			waitsnd = s.kcp.WaitSnd()
+
 			if waitsnd >= int(s.kcp.snd_wnd) || waitsnd >= int(s.kcp.rmt_wnd) || !s.writeDelay {
 				s.kcp.flush(false)
 				s.uncork()
@@ -901,9 +906,12 @@ func (l *Listener) packetInput(data []byte, addr net.Addr) {
 
 		if s == nil && convRecovered { // new session
 			if len(l.chAccepts) < cap(l.chAccepts) { // do not let the new sessions overwhelm accept queue
-				s := newUDPSession(conv, l.dataShards, l.parityShards, l, l.conn, false, addr, l.block)
+				//s := newUDPSession(conv, l.dataShards, l.parityShards, l, l.conn, false, addr, l.block)
+				s, _ := PeernetClientUDPSession(l.dataShards, l.parityShards, l.closer, l.incomingData, l.outgoingData, l.terminationSignal, l.block)
 				s.kcpInput(data)
 				l.sessionLock.Lock()
+				fmt.Println("reached listner to create a new session")
+				//fmt.Println(addr.String())
 				l.sessions[addr.String()] = s
 				l.sessionLock.Unlock()
 				l.chAccepts <- s
@@ -1081,7 +1089,8 @@ func serveConn(block BlockCrypt, dataShards, parityShards int, conn net.PacketCo
 	l.parityShards = parityShards
 	l.block = block
 	l.chSocketReadError = make(chan struct{})
-	//go l.monitor() commented the as monitoring of the core connections are from the core rep0
+	//go l.monitor() commented the as monitoring of the core connections are from the core repo
+	go l.PeernetMonitor()
 	return l, nil
 }
 

@@ -2,6 +2,7 @@ package kcp
 
 import (
 	"encoding/binary"
+	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -131,6 +132,7 @@ func (seg *segment) encode(ptr []byte) []byte {
 
 // KCP defines a single KCP connection
 type KCP struct {
+	// MSS = Maximum segment size
 	conv, mtu, mss, state                  uint32
 	snd_una, snd_nxt, rcv_nxt              uint32
 	ssthresh                               uint32
@@ -309,7 +311,6 @@ func (kcp *KCP) Send(buffer []byte) int {
 	if len(buffer) == 0 {
 		return -1
 	}
-
 	// append to previous segment in streaming mode (if possible)
 	if kcp.stream != 0 {
 		n := len(kcp.snd_queue)
@@ -362,6 +363,7 @@ func (kcp *KCP) Send(buffer []byte) int {
 		if kcp.stream == 0 { // message mode
 			seg.frg = uint8(count - i - 1)
 		} else { // stream mode
+			fmt.Println("stream mode")
 			seg.frg = 0
 		}
 		kcp.snd_queue = append(kcp.snd_queue, seg)

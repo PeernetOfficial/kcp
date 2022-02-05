@@ -3,6 +3,8 @@ package kcp
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
+	mathRand "math/rand"
 	"net"
 	"sync/atomic"
 	"time"
@@ -14,8 +16,7 @@ type Closer interface {
 	CloseLinger(reason int) error // CloseLinger is called when the socket indicates to be closed soon, after the linger time.
 }
 
-func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt) (net.Conn, error) {
-
+func PeernetClientUDPSession(dataShards, parityShards int, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt) (*UDPSession, error) {
 	sess := new(UDPSession)
 	sess.die = make(chan struct{})
 	sess.nonce = new(nonceAES128)
@@ -28,6 +29,9 @@ func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomi
 	sess.block = block
 	sess.recvbuf = make([]byte, mtuLimit)
 
+	// Create a socket ID
+	sess.sockID = mathRand.Uint32()
+
 	// Custom Peernet channels
 	sess.incomingData = incomingData
 	sess.outgoingData = outgoingData
@@ -35,6 +39,9 @@ func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomi
 
 	// Custom peernet closer
 	sess.closer = closer
+
+	// set stream mode to true
+	//sess.SetStreamMode(true)
 
 	// FEC codec initialization
 	sess.fecDecoder = newFECDecoder(dataShards, parityShards)
@@ -57,6 +64,7 @@ func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomi
 
 	sess.kcp = NewKCP(conv, func(buf []byte, size int) {
 		if size >= IKCP_OVERHEAD+sess.headerSize {
+			//fmt.Println(buf[:size])
 			sess.output(buf[:size])
 		}
 	})
@@ -83,7 +91,8 @@ func PeerNetClientUDPSession(dataShards, parityShards int, closer Closer, incomi
 	return sess, nil
 }
 
-func PeerNetServerUDPSession(closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt, dataShards, parityShards int) net.Listener {
+// PeernetServerUDPSession KCP acting as a server
+func PeernetServerUDPSession(closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, block BlockCrypt, dataShards, parityShards int) *Listener {
 	l := new(Listener)
 	//l.conn = conn
 	//l.ownConn = ownConn
@@ -100,6 +109,8 @@ func PeerNetServerUDPSession(closer Closer, incomingData <-chan []byte, outgoing
 	l.incomingData = incomingData
 	l.terminationSignal = terminationSignal
 
+	go l.PeernetMonitor()
+
 	return l
 }
 
@@ -110,11 +121,31 @@ func (s *UDPSession) ReadEventPeernet() {
 		select {
 		// Incoming data
 		case buf = <-s.incomingData:
+			fmt.Println(buf)
 			s.packetInput(buf)
 		case <-s.terminationSignal:
 			return
 		}
 
 		s.Read(buf)
+	}
+}
+
+// PeernetMonitor Overwritten version of the function monitor
+func (l *Listener) PeernetMonitor() {
+	l.defaultMonitor()
+}
+
+func (l *Listener) PeernetDefaultMonitor() {
+	for {
+		var buf []byte
+		select {
+		// Incoming data
+		case buf = <-l.incomingData:
+			fmt.Println(buf)
+			l.packetInput(buf)
+		case <-l.terminationSignal:
+			return
+		}
 	}
 }
