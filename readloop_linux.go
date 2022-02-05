@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package kcp
@@ -86,26 +87,26 @@ func (l *Listener) monitor() {
 		msgs[k].Buffers = [][]byte{make([]byte, mtuLimit)}
 	}
 
-	for {
-		if count, err := xconn.ReadBatch(msgs, 0); err == nil {
-			for i := 0; i < count; i++ {
-				msg := &msgs[i]
-				l.packetInput(msg.Buffers[0][:msg.N], msg.Addr)
-			}
-		} else {
-			// compatibility issue:
-			// for linux kernel<=2.6.32, support for sendmmsg is not available
-			// an error of type os.SyscallError will be returned
-			if operr, ok := err.(*net.OpError); ok {
-				if se, ok := operr.Err.(*os.SyscallError); ok {
-					if se.Syscall == "recvmmsg" {
-						l.defaultMonitor()
-						return
-					}
-				}
-			}
-			l.notifyReadError(errors.WithStack(err))
-			return
-		}
-	}
+	//for {
+	//	if count, err := xconn.ReadBatch(msgs, 0); err == nil {
+	//		for i := 0; i < count; i++ {
+	//			msg := &msgs[i]
+	//			l.packetInput(msg.Buffers[0][:msg.N], msg.Addr)
+	//		}
+	//	} else {
+	//		// compatibility issue:
+	//		// for linux kernel<=2.6.32, support for sendmmsg is not available
+	//		// an error of type os.SyscallError will be returned
+	//		if operr, ok := err.(*net.OpError); ok {
+	//			if se, ok := operr.Err.(*os.SyscallError); ok {
+	//				if se.Syscall == "recvmmsg" {
+	//					l.defaultMonitor()
+	//					return
+	//				}
+	//			}
+	//		}
+	//		l.notifyReadError(errors.WithStack(err))
+	//		return
+	//	}
+	//}
 }

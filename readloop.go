@@ -27,13 +27,13 @@ func (s *UDPSession) defaultReadLoop() {
 }
 
 func (l *Listener) defaultMonitor() {
-	buf := make([]byte, mtuLimit)
-	for {
-		if n, from, err := l.conn.ReadFrom(buf); err == nil {
-			l.packetInput(buf[:n], from)
-		} else {
-			l.notifyReadError(errors.WithStack(err))
-			return
-		}
-	}
+	//buf := make([]byte, mtuLimit)
+	//for {
+	//	if n, from, err := l.conn.ReadFrom(buf); err == nil {
+	//		l.packetInput(buf[:n], from)
+	//	} else {
+	//		l.notifyReadError(errors.WithStack(err))
+	//		return
+	//	}
+	//}
 }

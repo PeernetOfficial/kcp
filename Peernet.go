@@ -3,7 +3,6 @@ package kcp
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"fmt"
 	mathRand "math/rand"
 	"net"
 	"sync/atomic"
@@ -121,7 +120,6 @@ func (s *UDPSession) ReadEventPeernet() {
 		select {
 		// Incoming data
 		case buf = <-s.incomingData:
-			fmt.Println(buf)
 			s.packetInput(buf)
 		case <-s.terminationSignal:
 			return
@@ -133,7 +131,7 @@ func (s *UDPSession) ReadEventPeernet() {
 
 // PeernetMonitor Overwritten version of the function monitor
 func (l *Listener) PeernetMonitor() {
-	l.defaultMonitor()
+	l.PeernetDefaultMonitor()
 }
 
 func (l *Listener) PeernetDefaultMonitor() {
@@ -142,7 +140,6 @@ func (l *Listener) PeernetDefaultMonitor() {
 		select {
 		// Incoming data
 		case buf = <-l.incomingData:
-			fmt.Println(buf)
 			l.packetInput(buf)
 		case <-l.terminationSignal:
 			return

@@ -292,7 +292,6 @@ func (s *UDPSession) Read(b []byte) (n int, err error) {
 
 // Write implements net.Conn
 func (s *UDPSession) Write(b []byte) (n int, err error) {
-	fmt.Println(b)
 	return s.WriteBuffers([][]byte{b})
 }
 
@@ -325,11 +324,13 @@ func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
 				}
 			}
 
-			waitsnd = s.kcp.WaitSnd()
+			s.kcp.flush(false)
+			s.uncork()
 
+			waitsnd = s.kcp.WaitSnd()
 			if waitsnd >= int(s.kcp.snd_wnd) || waitsnd >= int(s.kcp.rmt_wnd) || !s.writeDelay {
-				s.kcp.flush(false)
-				s.uncork()
+				//s.kcp.flush(false)
+				//s.uncork()
 			}
 			s.mu.Unlock()
 			atomic.AddUint64(&DefaultSnmp.BytesSent, uint64(n))
@@ -367,14 +368,17 @@ func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
 // uncork sends data in txqueue if there is any
 // modified to send if there is any queue in sendqueue
 func (s *UDPSession) uncork() {
-	if len(s.sendqueue) > 0 {
-		for i, _ := range s.sendqueue {
+	if len(s.kcp.snd_queue) > 0 {
+		for i, _ := range s.kcp.snd_queue {
+			fmt.Println("sending to socket")
+			fmt.Println(s.kcp.snd_queue[i])
 			select {
-			case s.outgoingData <- s.sendqueue[i]:
+			case s.outgoingData <- s.kcp.snd_queue[i].data:
 			case <-s.terminationSignal:
 				return
 			}
 		}
+		//s.kcp.snd_queue = []segment{}
 	}
 	//if len(s.txqueue) > 0 {
 	//	s.tx(s.txqueue)
@@ -857,7 +861,7 @@ type (
 )
 
 // packet input stage
-func (l *Listener) packetInput(data []byte, addr net.Addr) {
+func (l *Listener) packetInput(data []byte) {
 	decrypted := false
 	if l.block != nil && len(data) >= cryptHeaderSize {
 		l.block.Decrypt(data, data)
@@ -875,7 +879,8 @@ func (l *Listener) packetInput(data []byte, addr net.Addr) {
 
 	if decrypted && len(data) >= IKCP_OVERHEAD {
 		l.sessionLock.RLock()
-		s, ok := l.sessions[addr.String()]
+		// Hardcoded for testing reasons (TODO: removed)
+		s, ok := l.sessions["1"]
 		l.sessionLock.RUnlock()
 
 		var conv, sn uint32
@@ -910,14 +915,15 @@ func (l *Listener) packetInput(data []byte, addr net.Addr) {
 				s, _ := PeernetClientUDPSession(l.dataShards, l.parityShards, l.closer, l.incomingData, l.outgoingData, l.terminationSignal, l.block)
 				s.kcpInput(data)
 				l.sessionLock.Lock()
-				fmt.Println("reached listner to create a new session")
 				//fmt.Println(addr.String())
-				l.sessions[addr.String()] = s
+				// (TODO: removed)
+				l.sessions["1"] = s
 				l.sessionLock.Unlock()
 				l.chAccepts <- s
 			}
 		}
 	}
+	fmt.Println("function executed successfully")
 }
 
 func (l *Listener) notifyReadError(err error) {
@@ -1036,11 +1042,11 @@ func (l *Listener) Close() error {
 }
 
 // closeSession notify the listener that a session has closed
-func (l *Listener) closeSession(remote net.Addr) (ret bool) {
+func (l *Listener) closeSession(sessionID string) (ret bool) {
 	l.sessionLock.Lock()
 	defer l.sessionLock.Unlock()
-	if _, ok := l.sessions[remote.String()]; ok {
-		delete(l.sessions, remote.String())
+	if _, ok := l.sessions[sessionID]; ok {
+		delete(l.sessions, sessionID)
 		return true
 	}
 	return false

@@ -2,7 +2,6 @@ package kcp
 
 import (
 	"encoding/binary"
-	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -363,7 +362,6 @@ func (kcp *KCP) Send(buffer []byte) int {
 		if kcp.stream == 0 { // message mode
 			seg.frg = uint8(count - i - 1)
 		} else { // stream mode
-			fmt.Println("stream mode")
 			seg.frg = 0
 		}
 		kcp.snd_queue = append(kcp.snd_queue, seg)
