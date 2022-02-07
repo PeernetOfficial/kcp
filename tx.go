@@ -22,3 +22,7 @@ func (s *UDPSession) defaultTx(txqueue []ipv4.Message) {
 	atomic.AddUint64(&DefaultSnmp.OutPkts, uint64(npkts))
 	atomic.AddUint64(&DefaultSnmp.OutBytes, uint64(nbytes))
 }
+
+func (s *UDPSession) tx(txqueue []ipv4.Message) {
+	s.defaultTx(txqueue)
+}
