@@ -1,6 +1,10 @@
 package kcp
 
-import "net"
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"net"
+)
 
 // Closer provides a status code indicating why the closing happens.
 type Closer interface {
@@ -21,27 +25,39 @@ const (
 	TerminateReasonSignal             = 1008 // Send: Terminate signal. Called udtSocket.Terminate().
 )
 
-func DialKCP(nothing *struct{}, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, isStream bool) (net.Conn, error) {
-	// m := newMultiplexer(closer, config.MaxPacketSize, incomingData, outgoingData, terminationSignal)
+const dataShardsDefault = 10
+const parityShardsDefault = 3
 
-	// s := m.newSocket(config, false, !isStream)
-	// err := s.startConnect()
+func DialKCP(config *Config, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}, isStream bool) (net.Conn, error) {
+	m := newMultiplexer(closer, config.MaxPacketSize, incomingData, outgoingData, terminationSignal)
 
-	return nil, nil
+	var block BlockCrypt
+	block = nil // No encryption for now.
+	dataShards := dataShardsDefault
+	parityShards := parityShardsDefault
+	var convid uint32
+	binary.Read(rand.Reader, binary.LittleEndian, &convid)
+
+	s := newUDPSession(convid, dataShards, parityShards, nil, block)
+	s.m = m
+
+	return s, nil
 }
 
-// ListenKCP listens for incoming UDT connections using the existing provided packet connection. It creates a UDT server.
-func ListenKCP(nothing *struct{}, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}) net.Listener {
-	// m := newMultiplexer(closer, config.MaxPacketSize, incomingData, outgoingData, terminationSignal)
+// ListenKCP listens for incoming KCP connections using the existing provided packet connection. It creates a KCP server.
+func ListenKCP(config *Config, closer Closer, incomingData <-chan []byte, outgoingData chan<- []byte, terminationSignal <-chan struct{}) net.Listener {
+	m := newMultiplexer(closer, config.MaxPacketSize, incomingData, outgoingData, terminationSignal)
 
-	// l := &listener{
-	// 	m:      m,
-	// 	accept: make(chan *udtSocket, 100),
-	// 	closed: make(chan struct{}, 1),
-	// 	config: config,
-	// }
+	l := &Listener{
+		m: m,
+	}
 
-	// m.listenSock = l
+	l.chAccepts = make(chan *UDPSession, acceptBacklog)
+	l.die = make(chan struct{})
+	l.dataShards = dataShardsDefault
+	l.parityShards = parityShardsDefault
+	l.block = nil // No encryption for now.
+	go l.monitor()
 
-	return nil
+	return l
 }
