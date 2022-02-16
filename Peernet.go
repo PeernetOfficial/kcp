@@ -38,8 +38,7 @@ func DialKCP(config *Config, closer Closer, incomingData <-chan []byte, outgoing
 	var convid uint32
 	binary.Read(rand.Reader, binary.LittleEndian, &convid)
 
-	s := newUDPSession(convid, dataShards, parityShards, nil, block)
-	s.m = m
+	s := newUDPSession(m, convid, dataShards, parityShards, nil, block)
 
 	return s, nil
 }

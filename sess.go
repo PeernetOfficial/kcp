@@ -99,8 +99,9 @@ type (
 )
 
 // newUDPSession create a new udp session for client or server
-func newUDPSession(conv uint32, dataShards, parityShards int, l *Listener, block BlockCrypt) *UDPSession {
+func newUDPSession(m *multiplexer, conv uint32, dataShards, parityShards int, l *Listener, block BlockCrypt) *UDPSession {
 	sess := new(UDPSession)
+	sess.m = m
 	sess.die = make(chan struct{})
 	sess.nonce = new(nonceAES128)
 	sess.nonce.Init()
@@ -714,9 +715,7 @@ func (l *Listener) packetInput(data []byte) {
 
 		if l.session == nil && convRecovered { // new session
 			if len(l.chAccepts) < cap(l.chAccepts) { // do not let the new sessions overwhelm accept queue
-				// TODO
-				//l.session = newUDPSession(conv, l.dataShards, l.parityShards, l, addr, l.block)
-				l.session = newUDPSession(conv, l.dataShards, l.parityShards, l, l.block)
+				l.session = newUDPSession(l.m, conv, l.dataShards, l.parityShards, l, l.block)
 				l.session.kcpInput(data)
 				l.chAccepts <- l.session
 			}
